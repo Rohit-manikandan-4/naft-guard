@@ -26,3 +26,4 @@ frontend/.env.local
 .DS_Store
 Thumbs.db
 backend/verify_response.json
+backend/render_test_response.json

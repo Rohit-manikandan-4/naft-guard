@@ -11,3 +11,8 @@ services:
         value: /opt/render/project/src/AI_MODULE
       - key: DATABASE_URL
         sync: false
+      # Render's free plan caps memory at 512MB — cap the longest side of
+      # any input image so the AI module's own tiled-array memory use stays
+      # well under that. Full-resolution scenes still work fine locally.
+      - key: MAX_IMAGE_DIMENSION
+        value: "1800"

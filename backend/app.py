@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import rasterio
+from rasterio.enums import Resampling
 from rasterio.warp import transform_bounds
 from PIL import Image
 
@@ -111,13 +112,24 @@ _executor = ThreadPoolExecutor(max_workers=1)
 
 def _quicklook(sar_path: Path, mask_path: Path, out_path: Path, max_size: int = 1000) -> None:
     """Render a browser-friendly PNG: greyscale SAR backscatter with the
-    AI's probable-oil mask painted on top in red."""
+    AI's probable-oil mask painted on top in red.
+
+    Reads both rasters directly at (approximately) the output resolution
+    via rasterio's decimated read, instead of loading the full-resolution
+    image into memory and shrinking afterwards — for a large scene, doing
+    it the naive way briefly needs 3 full-size RGB float32 arrays (the
+    single biggest memory spike in this whole service), which is both
+    slow and, on a memory-constrained host, a real crash risk.
+    """
 
     with rasterio.open(sar_path) as src:
-        sar = src.read(1).astype(np.float32)
+        scale = min(1.0, max_size / max(src.width, src.height))
+        out_w = max(1, int(round(src.width * scale)))
+        out_h = max(1, int(round(src.height * scale)))
+        sar = src.read(1, out_shape=(out_h, out_w), resampling=Resampling.average).astype(np.float32)
 
     with rasterio.open(mask_path) as src:
-        mask = src.read(1).astype(bool)
+        mask = src.read(1, out_shape=(out_h, out_w), resampling=Resampling.nearest).astype(bool)
 
     valid = np.isfinite(sar)
     if valid.any():
@@ -134,13 +146,7 @@ def _quicklook(sar_path: Path, mask_path: Path, out_path: Path, max_size: int = 
     tint[mask] = [230.0, 66.0, 56.0]
     blended = (0.5 * rgb + 0.5 * tint).astype(np.uint8)
 
-    img = Image.fromarray(blended)
-    w, h = img.size
-    scale = max_size / max(w, h)
-    if scale < 1:
-        img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.BILINEAR)
-
-    img.save(out_path)
+    Image.fromarray(blended).save(out_path)
 
 
 def _region_confidence(prob_path: Path, mask_path: Path) -> float | None:
@@ -172,8 +178,46 @@ def _image_bounds_wgs84(image_path: Path) -> dict | None:
         return None
 
 
+# On a memory-constrained host, the tiled prediction loop in AI_MODULE's own
+# predict.py holds several full-resolution float32 arrays at once (the raw
+# image, its normalized copy, a running probability sum, etc.) — for a large
+# scene that can be several hundred MB. Rather than editing the provided AI
+# module to change that, we optionally shrink the *input* file first (a
+# decimated read + rewrite, done here in the wrapper) so its own memory use
+# stays bounded. Off by default (0) — only set MAX_IMAGE_DIMENSION where the
+# host actually needs it (e.g. Render's free 512MB tier).
+MAX_IMAGE_DIMENSION = int(os.environ.get("MAX_IMAGE_DIMENSION", "0")) or None
+
+
+def _maybe_downsample_input(image_path: str, run_dir: Path) -> tuple[str, bool]:
+    if not MAX_IMAGE_DIMENSION:
+        return image_path, False
+
+    with rasterio.open(image_path) as src:
+        scale = min(1.0, MAX_IMAGE_DIMENSION / max(src.width, src.height))
+        if scale >= 1.0:
+            return image_path, False
+
+        out_w = max(1, int(round(src.width * scale)))
+        out_h = max(1, int(round(src.height * scale)))
+        data = src.read(1, out_shape=(out_h, out_w), resampling=Resampling.average)
+
+        profile = src.profile.copy()
+        transform = src.transform * src.transform.scale(src.width / out_w, src.height / out_h)
+        profile.update(width=out_w, height=out_h, transform=transform)
+
+    downsampled_path = run_dir / "input_downsampled.tif"
+    with rasterio.open(downsampled_path, "w", **profile) as dst:
+        dst.write(data, 1)
+
+    return str(downsampled_path), True
+
+
 def _run_detection(image_path: str, run_dir: Path, threshold: float) -> dict:
+    image_path, downsampled = _maybe_downsample_input(image_path, run_dir)
+
     result = detect_oil(image_path=image_path, output_dir=str(run_dir), threshold=threshold)
+    result["input_downsampled"] = downsampled
 
     quicklook_url = None
     mask_path = run_dir / "oil_mask.tif"

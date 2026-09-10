@@ -336,6 +336,8 @@ def health():
         "forecast_hours": FORECAST_HOURS,
         "default_threshold": DEFAULT_THRESHOLD,
         "database_connected": db.engine is not None,
+        "inference_engine": INFERENCE_ENGINE,
+        "max_image_dimension": MAX_IMAGE_DIMENSION,
     }
 
 

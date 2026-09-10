@@ -1,0 +1,18 @@
+# Install torch first from the CPU wheel index, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# then:
+#   pip install -r requirements.txt
+
+numpy
+rasterio
+pyproj
+scipy
+xarray
+netCDF4
+fastapi
+uvicorn[standard]
+python-multipart
+pillow
+sqlalchemy
+psycopg[binary]
+python-dotenv

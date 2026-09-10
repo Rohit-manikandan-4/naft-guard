@@ -29,3 +29,5 @@ backend/verify_response.json
 backend/render_test_response.json
 backend/render_retest.json
 backend/render_retest2.json
+backend/render_onnx_test.json
+backend/render_onnx_test2.json

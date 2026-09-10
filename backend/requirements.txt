@@ -1,7 +1,10 @@
-# Install torch first from the CPU wheel index, e.g.:
+# Full-fidelity local dev also needs torch (not listed here since it needs
+# the CPU wheel index, not plain PyPI):
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
-# then:
 #   pip install -r requirements.txt
+#
+# On a memory-constrained host, skip torch entirely and set
+# INFERENCE_ENGINE=onnx (see app.py) — onnxruntime below is all that's needed.
 
 numpy
 rasterio
@@ -16,3 +19,4 @@ pillow
 sqlalchemy
 psycopg[binary]
 python-dotenv
+onnxruntime

@@ -69,10 +69,40 @@ INFERENCE_DIR = AI_MODULE_DIR / "inference"
 sys.path.insert(0, str(INFERENCE_DIR))
 sys.path.insert(0, str(AI_MODULE_DIR))
 
-from predict import detect_oil, THRESHOLD as DEFAULT_THRESHOLD  # noqa: E402
 from spread_forecast import forecast_spread, FORECAST_HOURS  # noqa: E402
 
 SAMPLE_TIF = AI_MODULE_DIR / "sample" / "2018_09_26.tif"
+ONNX_MODEL_PATH = AI_MODULE_DIR / "models" / "oil_segmentation_model.onnx"
+
+# On memory-constrained hosts (e.g. Render's 512MB free tier), importing
+# torch alone adds ~150MB of resident memory before a single request is
+# served. INFERENCE_ENGINE=onnx swaps to ONNX Runtime (~30MB) running the
+# exact same trained weights (exported via export_onnx.py, verified to match
+# the torch model's output within floating-point noise). AI_MODULE itself is
+# untouched either way — this only changes which of our own wrapper
+# functions runs the forward pass. Default (unset) keeps using AI_MODULE's
+# own predict.detect_oil() as provided.
+#
+# Critically, predict.py itself does `import torch` at module scope — so
+# whichever branch we DON'T take must never import predict.py, or torch gets
+# pulled in anyway and this whole optimization is pointless.
+INFERENCE_ENGINE = os.environ.get("INFERENCE_ENGINE", "torch").lower()
+
+if INFERENCE_ENGINE == "onnx":
+    if not ONNX_MODEL_PATH.exists():
+        raise RuntimeError(
+            f"INFERENCE_ENGINE=onnx but {ONNX_MODEL_PATH} doesn't exist. "
+            "Run `python export_onnx.py` first."
+        )
+    from onnx_infer import detect_oil_onnx, THRESHOLD as DEFAULT_THRESHOLD
+
+    def run_detect_oil(image_path, output_dir, threshold):
+        return detect_oil_onnx(image_path, str(ONNX_MODEL_PATH), output_dir=output_dir, threshold=threshold)
+else:
+    from predict import detect_oil, THRESHOLD as DEFAULT_THRESHOLD
+
+    def run_detect_oil(image_path, output_dir, threshold):
+        return detect_oil(image_path=image_path, output_dir=output_dir, threshold=threshold)
 
 # --------------------------------------------------------------------------
 # App setup
@@ -216,7 +246,7 @@ def _maybe_downsample_input(image_path: str, run_dir: Path) -> tuple[str, bool]:
 def _run_detection(image_path: str, run_dir: Path, threshold: float) -> dict:
     image_path, downsampled = _maybe_downsample_input(image_path, run_dir)
 
-    result = detect_oil(image_path=image_path, output_dir=str(run_dir), threshold=threshold)
+    result = run_detect_oil(image_path, str(run_dir), threshold)
     result["input_downsampled"] = downsampled
 
     quicklook_url = None

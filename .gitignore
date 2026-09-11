@@ -31,3 +31,6 @@ backend/render_retest.json
 backend/render_retest2.json
 backend/render_onnx_test.json
 backend/render_onnx_test2.json
+backend/*.log
+backend/ngrok.exe
+backend/ngrok.zip

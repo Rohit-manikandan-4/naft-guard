@@ -3,6 +3,21 @@
 
 export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
+// When the backend is exposed via an ngrok free-tier tunnel, ngrok shows a
+// one-time interstitial "are you sure you trust this site" page to browser
+// requests unless this header is present — see https://ngrok.com/docs/http/
+// request-headers/#ngrok-skip-browser-warning. Harmless to always send it,
+// including when API_BASE isn't an ngrok URL at all.
+function apiFetch(path, options = {}) {
+  return fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'ngrok-skip-browser-warning': 'true',
+      ...(options.headers || {}),
+    },
+  })
+}
+
 async function asJson(res) {
   let body = null
   try {
@@ -18,12 +33,12 @@ async function asJson(res) {
 }
 
 export async function checkHealth() {
-  const res = await fetch(`${API_BASE}/api/health`)
+  const res = await apiFetch('/api/health')
   return asJson(res)
 }
 
 export async function getSampleScene() {
-  const res = await fetch(`${API_BASE}/api/sample-scene`)
+  const res = await apiFetch('/api/sample-scene')
   return asJson(res)
 }
 
@@ -37,7 +52,7 @@ export async function detectOil({ file, useSample = false, threshold = 0.5 } = {
   form.append('use_sample', useSample ? 'true' : 'false')
   form.append('threshold', String(threshold))
 
-  const res = await fetch(`${API_BASE}/api/detect`, {
+  const res = await apiFetch('/api/detect', {
     method: 'POST',
     body: form,
   })
@@ -48,7 +63,7 @@ export async function detectOil({ file, useSample = false, threshold = 0.5 } = {
 // Pass incidentId to have the backend save this forecast against that
 // incident (requires a database to be configured on the backend).
 export async function forecastSpread({ latitude, longitude, windSpeedMps = 6, windDirectionDeg = 270, incidentId = null }) {
-  const res = await fetch(`${API_BASE}/api/forecast`, {
+  const res = await apiFetch('/api/forecast', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -66,12 +81,12 @@ export async function forecastSpread({ latitude, longitude, windSpeedMps = 6, wi
 // Only available when the backend has a database configured; callers
 // should fall back to local defaults if this throws.
 export async function getState() {
-  const res = await fetch(`${API_BASE}/api/state`)
+  const res = await apiFetch('/api/state')
   return asJson(res)
 }
 
 export async function updateActionStatus(actionId, status) {
-  const res = await fetch(`${API_BASE}/api/actions/${actionId}`, {
+  const res = await apiFetch(`/api/actions/${actionId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -80,7 +95,7 @@ export async function updateActionStatus(actionId, status) {
 }
 
 export async function issueWarning(incidentId) {
-  const res = await fetch(`${API_BASE}/api/incidents/${incidentId}/warning`, { method: 'POST' })
+  const res = await apiFetch(`/api/incidents/${incidentId}/warning`, { method: 'POST' })
   return asJson(res)
 }
 
